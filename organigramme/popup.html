@@ -27,10 +27,37 @@
 
 <div ondblclick="clicpopup(0)" style="cursor:pointer">cliclic</div>
 <div id="popup">
-      <span id="closeBtn" onclick="clicpopup(1)">&#10006;</span>
-      <p>Contenu du div</p>
-      <p>hhhhh</p>
-      <p> jjjjj</p>
+    <span id="closeBtn"
+    onclick="closePopup()">✖
+    </span>
+ 
+<h3 id="agentNom"></h3>
+ 
+<img id="agentImage" width="100" style="border-radius:50%" />
+ 
+<hr>
+ 
+<p><b>Poste :</b> <span id="agentFonction"></span></p>
+ 
+<p><b>Structure :</b> <span id="agentDirection"></span></p>
+ 
+<p><b>Collectivité :</b> <span id="agentCollectivite"></span></p>
+ 
+<p><b>Site :</b> <span id="agentSite"></span></p>
+ 
+<p><b>Téléphone :</b> <span id="agentTelephone"></span></p>
+ 
+<p><b>Mail :</b> <span id="agentMail"></span></p>
+ 
+<p><b>SORH :</b> <span id="agentSorh"></span></p>
+ 
+<p>
+<a id="agentTeams"
+target="_blank">
+Ouvrir Teams
+</a>
+</p>
+ 
 </div>
 <script>
 const popup = document.getElementById('popup');
@@ -38,4 +65,8 @@ const popup = document.getElementById('popup');
 function clicpopup(action) {
   popup.style.display = action==1 ? 'none' : 'block';
 }
-</script>
+
+function closePopup() {
+  document.getElementById("popup").style.display="none";
+}
+ </script>
