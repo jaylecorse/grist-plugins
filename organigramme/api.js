@@ -9,32 +9,129 @@ let chpFonction = "";
 let chpDirection = "";
 let chpImage = "";
 const columnsMappingOptions = [
+
   {
     name: "parentId",
     title: "Identifiant du N+1",
     optional: false,
     allowMultiple: false
   },
+
   {
     name: "nom",
-    title: "Le nom de l'agent",
+    title: "Nom",
     optional: false,
     type: "Text",
     allowMultiple: false
   },
+
+  {
+    name: "prenom",
+    title: "Prénom",
+    optional: true,
+    type: "Text",
+    allowMultiple: false
+  },
+
   {
     name: "fonction",
-    title: "La fonction de l'agent",
-    optional: true
+    title: "Fonction",
+    optional: true,
+    type: "Text",
+    allowMultiple: false
   },
+
   {
     name: "direction",
-    title: "La direction de l'agent",
-    optional: true
+    title: "Structure",
+    optional: true,
+    type: "Text",
+    allowMultiple: false
   },
+
+  {
+    name: "collectivite",
+    title: "Collectivité",
+    optional: true,
+    type: "Choice",
+    allowMultiple: false
+  },
+
+  {
+    name: "typePoste",
+    title: "Type de poste",
+    optional: true,
+    type: "Choice",
+    allowMultiple: false
+  },
+
+  {
+    name: "telephone",
+    title: "Téléphone",
+    optional: true,
+    type: "Text",
+    allowMultiple: false
+  },
+
+  {
+    name: "mail",
+    title: "Adresse mail",
+    optional: true,
+    type: "Text",
+    allowMultiple: false
+  },
+
+  {
+    name: "teams",
+    title: "Lien Teams",
+    optional: true,
+    type: "Text",
+    allowMultiple: false
+  },
+
+  {
+    name: "site",
+    title: "Site de travail",
+    optional: true,
+    type: "Text",
+    allowMultiple: false
+  },
+
+  {
+    name: "sorh",
+    title: "SORH gestionnaire",
+    optional: true,
+    type: "Text",
+    allowMultiple: false
+  },
+
+  {
+    name: "nbAgents",
+    title: "Nombre d'agents",
+    optional: true,
+    type: "Numeric",
+    allowMultiple: false
+  },
+
+  {
+    name: "nbPostes",
+    title: "Nombre de postes",
+    optional: true,
+    type: "Numeric",
+    allowMultiple: false
+  },
+
+  {
+    name: "niveauHierarchique",
+    title: "Niveau hiérarchique",
+    optional: true,
+    type: "Numeric",
+    allowMultiple: false
+  },
+
   {
     name: "image",
-    title: "L'image de l'agent",
+    title: "Photo de l'agent",
     optional: true,
     type: "Attachments",
     allowMultiple: false
