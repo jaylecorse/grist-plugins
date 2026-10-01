@@ -1,124 +1,78 @@
 <html>
-<head>
-  <meta charset="utf-8">
 
+<head>
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/d3-org-chart@3.0.1"></script>
   <script src="https://cdn.jsdelivr.net/npm/d3-flextree@2.1.2/build/d3-flextree.js"></script>
   <script src="api.js"></script>
-
   <style>
-    body {
-      margin: 0;
-      font-family: Segoe UI, sans-serif;
-    }
-
-    #toolbar {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px;
-      border-bottom: 1px solid #ddd;
-      background: white;
-    }
-
-    #toolbar h3 {
-      margin: 0;
-      flex: 1;
-    }
-
-    #toolbar input {
-      width: 300px;
-      padding: 6px;
-    }
-
-    #msg {
-      color: red;
-      padding: 10px;
-    }
-
-    .chart-container {
-      width: 100%;
-      height: calc(100vh - 60px);
-    }
-
     #config-panel {
       position: fixed;
       top: 60px;
       right: 10px;
-      background: white;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0,0,0,.15);
-      width: 350px;
-      padding: 15px;
+      background: #fff;
+      border: 1px solid #ccc;
       display: none;
-      z-index: 1000;
+      z-index: 2001;
+      width: 400px;
+      padding: 10px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
     }
 
     .column-mapping-item {
       display: flex;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       align-items: center;
     }
 
     .column-mapping-item label {
-      width: 130px;
+      margin-right: 10px;
+      width: 150px;
     }
 
     .column-mapping-item input {
-      flex: 1;
+      flex-grow: 1;
+    }
+
+    button {
+      margin-top: 10px;
+    }
+
+    #titre {
+      margin-bottom: 0
     }
   </style>
-
 </head>
 
 <body>
+  <table width="100%">
+    <tr>
+      <td width="80%">
+        <h3 id="titre">Organigramme</h3>
+      </td>
+      <td valign="top">
+        <input type="search" placeholder="recherche sur le nom" oninput="filterChart(event)" />
+      </td>
+      <td align="right" valign="top" style="cursor: pointer" onclick="clic(0)"> <b>⋯</b> </td>
+    </tr>
+  </table>
+  <div id="msg" style="color:red;"></div>
+  <div class="chart-container"></div>
 
-<div id="toolbar">
-  <h3 id="titre">Organigramme</h3>
-
-  <input
-      type="search"
-      placeholder="Recherche nom ou fonction"
-      oninput="filterChart(event)"
-  >
-
-  <span
-      style="cursor:pointer;font-size:24px"
-      onclick="clic(0)"
-  >
-      ⋯
-  </span>
-</div>
-
-<div id="msg"></div>
-
-<div class="chart-container"></div>
-
-<div id="config-panel">
-
-  <b>Configuration</b>
-
-  <br><br>
-
-  <div class="column-mapping-item">
-    <label>Titre :</label>
-    <input id="input-titre">
+  <div id="config-panel">
+    <b>Config</b><br><br>
+    <div class="column-mapping-item">
+      <label for="input-titre">Titre organigramme:</label>
+      <input type="text" id="input-titre">
+    </div>
+    <div class="column-mapping-item">
+      <label for="input-couleur">Couleur vignette:</label>
+      <input type="text" id="input-couleur">
+    </div>
+    <div align="right"><button onclick="clic(1)">Ok</button>&nbsp;<button onclick="clic(2)">Annuler</button></div>
   </div>
-
-  <div class="column-mapping-item">
-    <label>Couleur :</label>
-    <input id="input-couleur">
-  </div>
-
-  <div style="text-align:right">
-    <button onclick="clic(1)">Enregistrer</button>
-    <button onclick="clic(2)">Fermer</button>
-  </div>
-
-</div>
 
 </body>
+
 </html>
