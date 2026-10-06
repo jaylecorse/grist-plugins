@@ -1,78 +1,141 @@
-<html>
+<!DOCTYPE html>
+<html lang="fr">
 
 <head>
-  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
-  <script src="https://d3js.org/d3.v7.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/d3-org-chart@3.0.1"></script>
-  <script src="https://cdn.jsdelivr.net/npm/d3-flextree@2.1.2/build/d3-flextree.js"></script>
-  <script src="api.js"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Organigramme</title>
+
+  <script defer src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <script defer src="https://d3js.org/d3.v7.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/d3-flextree@2.1.2/build/d3-flextree.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/d3-org-chart@3.0.1"></script>
+  <script defer src="api.js"></script>
+
   <style>
-    #config-panel {
-      position: fixed;
-      top: 60px;
-      right: 10px;
-      background: #fff;
-      border: 1px solid #ccc;
-      display: none;
-      z-index: 2001;
-      width: 400px;
-      padding: 10px;
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    :root {
+      --vignette: lightblue;
+      --texte: #08011e;
+      --texte-secondaire: #716e7b;
+      --bordure: #e4e2e9;
     }
 
-    .column-mapping-item {
+    * { box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      color: var(--texte);
+    }
+
+    body { display: flex; flex-direction: column; padding: 8px 10px 0; }
+
+    /* ---------- En-tête ---------- */
+    header { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+    #titre { flex: 1; margin: 0; font-size: 1.15rem; }
+    #recherche { width: 220px; max-width: 40%; padding: 4px 8px; }
+    #btn-config {
+      border: 0; background: none; cursor: pointer;
+      font-size: 1.2rem; font-weight: bold; line-height: 1; padding: 4px 8px;
+    }
+
+    #msg { color: #c00; white-space: pre-line; margin: 6px 0 0; }
+    #msg:empty { display: none; }
+
+    .chart-container { flex: 1 1 auto; min-height: 0; }
+
+    /* ---------- Vignette d'un agent ---------- */
+    .org-node { padding: 4px 1px 14px; height: 100%; }
+
+    .org-card {
+      position: relative;
       display: flex;
-      margin-bottom: 10px;
       align-items: center;
+      gap: 10px;
+      height: 100%;
+      padding: 8px 10px;
+      overflow: hidden;
+      background: var(--vignette);
+      border: 1px solid var(--bordure);
+      border-radius: 10px;
     }
 
-    .column-mapping-item label {
-      margin-right: 10px;
-      width: 150px;
+    .org-photo {
+      position: relative;
+      flex: 0 0 56px;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      overflow: hidden;
+      background: rgba(255, 255, 255, .65);
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
-    .column-mapping-item input {
-      flex-grow: 1;
+    .org-initials { font-size: 18px; font-weight: 600; color: var(--texte-secondaire); }
+
+    .org-photo img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
     }
 
-    button {
-      margin-top: 10px;
-    }
+    .org-infos { min-width: 0; flex: 1; line-height: 1.25; }
+    .org-nom { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .org-detail { font-size: 10px; color: var(--texte-secondaire); margin-top: 2px;
+      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 
-    #titre {
-      margin-bottom: 0
+    .org-id {
+      position: absolute; top: 4px; right: 8px;
+      font-size: 10px; color: var(--texte-secondaire);
+      cursor: pointer; user-select: none;
     }
+    .org-id:hover { text-decoration: underline; }
+
+    /* ---------- Panneau de configuration ---------- */
+    #config-panel {
+      position: fixed; top: 44px; right: 10px; z-index: 2001;
+      display: none; width: 400px; max-width: calc(100% - 20px);
+      padding: 10px 12px; background: #fff; border: 1px solid #ccc;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, .2);
+    }
+    #config-panel.ouvert { display: block; }
+    .config-ligne { display: flex; align-items: center; margin: 10px 0; }
+    .config-ligne label { width: 150px; flex: 0 0 auto; }
+    .config-ligne input { flex: 1; min-width: 0; }
+    .config-actions { display: flex; justify-content: flex-end; gap: 6px; }
   </style>
 </head>
 
 <body>
-  <table width="100%">
-    <tr>
-      <td width="80%">
-        <h3 id="titre">Organigramme</h3>
-      </td>
-      <td valign="top">
-        <input type="search" placeholder="recherche sur le nom" oninput="filterChart(event)" />
-      </td>
-      <td align="right" valign="top" style="cursor: pointer" onclick="clic(0)"> <b>⋯</b> </td>
-    </tr>
-  </table>
-  <div id="msg" style="color:red;"></div>
+  <header>
+    <h3 id="titre">Organigramme</h3>
+    <input id="recherche" type="search" placeholder="recherche sur le nom" aria-label="Recherche sur le nom" autocomplete="off">
+    <button id="btn-config" type="button" title="Configuration" aria-label="Configuration">⋯</button>
+  </header>
+
+  <div id="msg" role="alert"></div>
   <div class="chart-container"></div>
 
   <div id="config-panel">
-    <b>Config</b><br><br>
-    <div class="column-mapping-item">
-      <label for="input-titre">Titre organigramme:</label>
+    <b>Config</b>
+    <div class="config-ligne">
+      <label for="input-titre">Titre organigramme :</label>
       <input type="text" id="input-titre">
     </div>
-    <div class="column-mapping-item">
-      <label for="input-couleur">Couleur vignette:</label>
-      <input type="text" id="input-couleur">
+    <div class="config-ligne">
+      <label for="input-couleur">Couleur vignette :</label>
+      <input type="text" id="input-couleur" placeholder="lightblue, #cce5ff, rgb(…)">
     </div>
-    <div align="right"><button onclick="clic(1)">Ok</button>&nbsp;<button onclick="clic(2)">Annuler</button></div>
+    <div class="config-actions">
+      <button id="btn-ok" type="button">Ok</button>
+      <button id="btn-annuler" type="button">Annuler</button>
+    </div>
   </div>
-
 </body>
 
 </html>
