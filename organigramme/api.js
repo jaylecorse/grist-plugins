@@ -10,7 +10,7 @@
 const DEFAULTS = Object.freeze({ titre: 'Organigramme', couleur: 'lightblue', mode: 'strate' });
 const NODE = Object.freeze({ width: 270, height: 118 });
 const NIVEAUX_INITIAUX = '2';
-const PALETTE = ['#cfe3ff', '#d4f0cf', '#ffe2b5', '#f1d2ee', '#ffd0d0', '#cdeeea', '#e5dfff', '#f3efbd'];
+const PALETTE = ['#cfe3ff', '#d4f0cf', '#ffe2b5', '#f1d2ee', '#ffd0d0', '#cdeeea', '#e5dfff', '#f3efbd', '#d9e4c8', '#f5d9c4', '#c9dcec', '#e8d0e0'];
 const FLAGS = ['_expanded', '_highlighted', '_upToTheRootHighlighted'];
 
 const COLUMNS = [
@@ -18,7 +18,11 @@ const COLUMNS = [
   { name: 'nom', title: "Nom de l'agent (vide = poste vacant)", optional: false, type: 'Text', allowMultiple: false },
   { name: 'prenom', title: "Prénom (ajouté au nom s'il n'y figure pas déjà)", optional: true, type: 'Text' },
   { name: 'fonction', title: "Libellé du poste", optional: true },
-  { name: 'direction', title: "Libellé de la structure", optional: true },
+  { name: 'directionGenerale', title: "Direction générale", optional: true },
+  { name: 'direction', title: "Direction", optional: true },
+  { name: 'pole', title: "Pôle", optional: true },
+  { name: 'service', title: "Service", optional: true },
+  { name: 'equipe', title: "Équipe", optional: true },
   { name: 'photo', title: "URL de la photo", optional: true, type: 'Text', allowMultiple: false },
   { name: 'collectivite', title: "Collectivité (couleur Ville / Métropole)", optional: true },
   { name: 'typePoste', title: "Type de poste (permanent / non permanent)", optional: true },
@@ -37,14 +41,17 @@ const COLUMNS = [
 ];
 const ATTRIBUTS = COLUMNS.map((c) => c.name).filter((n) => !['parentId', 'nom', 'photo'].includes(n));
 
+const FICHE_ORGA = [['directionGenerale', 'Direction générale'], ['direction', 'Direction'], ['pole', 'Pôle'], ['service', 'Service'], ['equipe', 'Équipe']];
 const FICHE_STRUCT = [['collectivite', 'Collectivité'], ['typePoste', 'Type de poste'], ['sorh', 'SORH gestionnaire'], ['statut', 'Statut']];
 const FICHE_INDIV = [['metier', 'Métier'], ['site', 'Site de travail'], ['mail', 'Mail professionnel'], ['telephone', 'Téléphone'], ['teams', 'Teams']];
 const FICHE_RH = [['matricule', 'Matricule'], ['grade', 'Grade'], ['cadreEmploi', "Cadre d'emploi"], ['categorie', 'Catégorie'], ['filiere', 'Filière']];
-const EXPORT_COLS = [['collectivite', 'Collectivité'], ['typePoste', 'Type de poste'], ['statut', 'Statut'], ['sorh', 'SORH'],
+const EXPORT_COLS = [['directionGenerale', 'Direction générale'], ['direction', 'Direction'], ['pole', 'Pôle'], ['service', 'Service'], ['equipe', 'Équipe'], ['collectivite', 'Collectivité'], ['typePoste', 'Type de poste'], ['statut', 'Statut'], ['sorh', 'SORH'],
   ['metier', 'Métier'], ['site', 'Site'], ['mail', 'Mail'], ['telephone', 'Téléphone'], ['teams', 'Teams'],
   ['matricule', 'Matricule'], ['grade', 'Grade'], ['cadreEmploi', "Cadre d'emploi"], ['categorie', 'Catégorie'], ['filiere', 'Filière']];
 
-const MODES = { strate: 'Niveau hiérarchique', collectivite: 'Collectivité', typePoste: 'Type de poste', uniforme: 'Une seule couleur' };
+const MODES = { strate: 'Niveau hiérarchique', collectivite: 'Collectivité', typePoste: 'Type de poste', pole: 'Pôle', service: 'Service', uniforme: 'Une seule couleur' };
+const CATEG_MODES = ['collectivite', 'typePoste', 'pole', 'service'];
+const MAX_LEGENDE = 14;
 const MAX_LISTE = 25;
 
 const state = {
@@ -90,8 +97,14 @@ function debounce(fn, delay) {
 const showMessage = (t) => { $('msg').textContent = t || ''; };
 const annoncer = (t) => { $('statut').textContent = t || ''; };
 const libelle = (r) => (r.vacant ? 'Poste vacant' : r.nom);
+/** Structure la plus précise renseignée : équipe > service > pôle > direction > direction générale. */
+const structure = (r) => r.a.equipe || r.a.service || r.a.pole || r.a.direction || r.a.directionGenerale || '';
 
-function ouvrir(dlg) { if (dlg.showModal) { if (!dlg.open) dlg.showModal(); } else dlg.setAttribute('open', ''); }
+function ouvrir(dlg, modal = true) {
+  if (dlg.open || dlg.hasAttribute('open')) return;
+  const f = modal ? dlg.showModal : dlg.show;
+  if (f) f.call(dlg); else dlg.setAttribute('open', '');
+}
 function fermer(dlg) { if (dlg.close) dlg.close(); else dlg.removeAttribute('open'); }
 
 /* --------------------------------------------------------------------------
@@ -190,14 +203,14 @@ function* ancetres(r) {
 
 function modeEffectif() {
   const m = state.mode;
-  if ((m === 'collectivite' || m === 'typePoste') && !(state.mappings && state.mappings[m])) return 'strate';
+  if (CATEG_MODES.includes(m) && !(state.mappings && state.mappings[m])) return 'strate';
   return m;
 }
 
 function construireCategories() {
   state.categories = new Map();
   const m = modeEffectif();
-  if (m !== 'collectivite' && m !== 'typePoste') return;
+  if (!CATEG_MODES.includes(m)) return;
   [...new Set(state.rows.map((r) => r.a[m]).filter(Boolean))].sort((x, y) => x.localeCompare(y, 'fr'))
     .forEach((v, i) => state.categories.set(v, PALETTE[i % PALETTE.length]));
 }
@@ -217,6 +230,7 @@ function dessinerLegende() {
     items = Array.from({ length: max }, (_, i) => [`Niveau ${i + 1}`, PALETTE[i]]);
   } else if (m !== 'uniforme') {
     items = [...state.categories.entries()];
+    if (items.length > MAX_LEGENDE) items = [...items.slice(0, MAX_LEGENDE), [`+ ${items.length - MAX_LEGENDE} autres (couleurs répétées)`, 'transparent']];
   }
   $('legende').innerHTML = items.map(([t, c]) => `<li><i style="background:${escapeHTML(c)}"></i>${escapeHTML(t)}</li>`).join('');
 }
@@ -229,7 +243,7 @@ function renderNode(d) {
   const r = d.data;
   const statut = r.a.statut;
   const draft = /draft|brouillon|travail/.test(normaliser(statut));
-  const aria = [libelle(r), r.a.fonction, r.a.direction].filter(Boolean).join(', ');
+  const aria = [libelle(r), r.a.fonction, structure(r)].filter(Boolean).join(', ');
   const img = r.photo ? `<img src="${escapeHTML(r.photo)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : '';
   const compte = r._nbPostes > 1
     ? `<div class="org-count" title="${r._nbAgents} agent(s) pour ${r._nbPostes} poste(s) dans la structure">${r._nbAgents} agent(s) · ${r._nbPostes} poste(s)</div>` : '';
@@ -243,7 +257,7 @@ function renderNode(d) {
         <div class="org-infos">
           <div class="org-nom" title="${escapeHTML(libelle(r))}">${escapeHTML(libelle(r))}</div>
           <div class="org-poste">${escapeHTML(r.a.fonction)}</div>
-          <div class="org-struct">${escapeHTML(r.a.direction)}</div>
+          <div class="org-struct">${escapeHTML(structure(r))}</div>
           ${compte}
         </div>
         ${statut ? `<span class="org-tag">${escapeHTML(statut)}</span>` : ''}
@@ -300,7 +314,7 @@ function afficher(rows) {
     if (a) FLAGS.forEach((k) => { if (a[k] !== undefined) r[k] = a[k]; });
   });
   if (state.focusId !== null && !state.byId.has(state.focusId)) state.focusId = null;
-  if (premier) { state.chart = creerOrganigramme(); appliquerNiveaux(state.niveaux); }
+  if (premier) { state.chart = creerOrganigramme(); appliquerNiveaux(state.niveaux); annoncer(''); }
   construireCategories();
   majInterface();
   dessiner(premier);
@@ -388,24 +402,29 @@ function ouvrirFiche(id) {
   const parent = state.byId.get(r.parentId);
   const collegues = parent ? state.enfants.get(parent.id).filter((e) => e.id !== id) : [];
   const subs = state.enfants.get(id);
+  const orga = lignesDl(FICHE_ORGA, r);
   const struct = lignesDl(FICHE_STRUCT, r);
   const indiv = lignesDl(FICHE_INDIV, r);
   const rh = lignesDl(FICHE_RH, r);
   const img = r.photo ? `<img src="${escapeHTML(r.photo)}" alt="" referrerpolicy="no-referrer">` : '';
 
   $('fiche').innerHTML = `
+    <button type="button" class="icone" data-action="fermer" aria-label="Fermer la fiche" style="position:absolute;top:8px;right:8px">✖</button>
     <div class="fiche-tete">
       <div class="org-photo"><span class="org-initials">${r.vacant ? '' : escapeHTML(initiales(r.nom))}</span>${img}</div>
       <div>
         <h2 id="fiche-titre">${escapeHTML(libelle(r))}</h2>
         <div>${escapeHTML(r.a.fonction)}</div>
-        <div class="vide">${escapeHTML(r.a.direction)}</div>
+        <div class="vide">${escapeHTML(structure(r))}</div>
       </div>
     </div>
+    <div class="badges">
+      <span class="badge">${r._nbAgents} agent(s)</span><span class="badge">${r._nbPostes} poste(s)</span>
+      <span class="badge">${subs.length} direct(s)</span>
+    </div>
+    ${orga ? `<h3>Rattachement</h3><dl>${orga}</dl>` : ''}
     ${struct || indiv ? `<h3>Informations</h3><dl>${struct}${indiv}</dl>` : ''}
     ${rh ? `<h3>Informations RH</h3><dl>${rh}</dl>` : ''}
-    <h3>Effectifs de la structure</h3>
-    <p class="vide">${r._nbAgents} agent(s), ${r._nbPostes} poste(s), ${subs.length} rattaché(s) direct(s)</p>
     <h3>Positionnement</h3>
     <dl><dt>N+1</dt><dd>${parent ? lienAgent(parent) : '<span class="vide">Aucun (N°1)</span>'}</dd></dl>
     <h3>Collègues (même N+1)</h3>${listeAgents(collegues)}
@@ -416,7 +435,8 @@ function ouvrirFiche(id) {
       <button type="button" data-action="export" data-id="${id}">Exporter cette structure…</button>
       <button type="button" data-action="fermer">Fermer</button>
     </div>`;
-  ouvrir($('dlg-fiche'));
+  ouvrir($('dlg-fiche'), false);
+  $('dlg-fiche').scrollTop = 0;
 }
 
 const ACTIONS = {
@@ -453,7 +473,7 @@ function filtrer(texte) {
 function ouvrirExport(id) {
   const r = state.byId.get(id) || racineVue();
   state.exportId = r.id;
-  $('export-structure').textContent = [libelle(r), r.a.direction].filter(Boolean).join(' — ');
+  $('export-structure').textContent = [libelle(r), structure(r)].filter(Boolean).join(' — ');
   ouvrir($('dlg-export'));
 }
 
@@ -484,7 +504,7 @@ function exporterCSV() {
   const cols = EXPORT_COLS.filter(([k]) => state.mappings && state.mappings[k]);
   const entete = ['Niveau', 'Nom', 'Poste', 'Structure', 'N+1', ...cols.map(([, l]) => l), "Nb agents (structure)", "Nb postes (structure)"];
   const lignes = rows.map((r) => [
-    r._depth - racine._depth + 1, libelle(r), r.a.fonction, r.a.direction,
+    r._depth - racine._depth + 1, libelle(r), r.a.fonction, structure(r),
     r.id === racine.id ? '' : libelle(state.byId.get(r.parentId)),
     ...cols.map(([k]) => r.a[k]), r._nbAgents, r._nbPostes,
   ]);
@@ -521,7 +541,7 @@ function majInterface() {
     Object.entries(MODES).forEach(([k, l]) => sel.add(new Option(l, k)));
   }
   [...sel.options].forEach((o) => {
-    o.disabled = (o.value === 'collectivite' || o.value === 'typePoste') && !(state.mappings && state.mappings[o.value]);
+    o.disabled = CATEG_MODES.includes(o.value) && !(state.mappings && state.mappings[o.value]);
   });
   sel.value = modeEffectif();
   $('sel-niveaux').value = state.niveaux;
@@ -619,6 +639,13 @@ document.addEventListener('click', (e) => {
 });
 // Les logos illisibles sont masqués.
 ['logo1', 'logo2'].forEach((id) => $(id).addEventListener('error', () => { $(id).hidden = true; }));
+
+document.addEventListener('keydown', (e) => {
+  const fiche = $('dlg-fiche');
+  if (e.key === 'Escape' && (fiche.open || fiche.hasAttribute('open'))) fermer(fiche);
+  const saisie = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+  if (e.key === '/' && !saisie) { e.preventDefault(); $('recherche').focus(); }
+});
 
 window.addEventListener('beforeprint', () => state.chart && state.chart.fit());
 window.addEventListener('resize', debounce(() => {
