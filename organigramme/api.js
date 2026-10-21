@@ -8,7 +8,6 @@
    ========================================================================== */
 
 const DEFAULTS = Object.freeze({ titre: 'Organigramme', couleur: 'lightblue', mode: 'strate' });
-const NODE = Object.freeze({ width: 270, height: 118 });
 const NIVEAUX_INITIAUX = '2';
 const PALETTE = ['#cfe3ff', '#d4f0cf', '#ffe2b5', '#f1d2ee', '#ffd0d0', '#cdeeea', '#e5dfff', '#f3efbd', '#d9e4c8', '#f5d9c4', '#c9dcec', '#e8d0e0'];
 const FLAGS = ['_expanded', '_highlighted', '_upToTheRootHighlighted'];
@@ -38,8 +37,9 @@ const COLUMNS = [
   { name: 'cadreEmploi', title: "RH : cadre d'emploi", optional: true },
   { name: 'categorie', title: "RH : catégorie", optional: true },
   { name: 'filiere', title: "RH : filière", optional: true },
+  { name: 'synchro', title: "Date de synchronisation (la plus récente est affichée)", optional: true },
 ];
-const ATTRIBUTS = COLUMNS.map((c) => c.name).filter((n) => !['parentId', 'nom', 'photo'].includes(n));
+const ATTRIBUTS = COLUMNS.map((c) => c.name).filter((n) => !['parentId', 'nom', 'photo', 'synchro'].includes(n));
 
 const FICHE_ORGA = [['directionGenerale', 'Direction générale'], ['direction', 'Direction'], ['pole', 'Pôle'], ['service', 'Service'], ['equipe', 'Équipe']];
 const FICHE_STRUCT = [['collectivite', 'Collectivité'], ['typePoste', 'Type de poste'], ['sorh', 'SORH gestionnaire'], ['statut', 'Statut']];
@@ -49,10 +49,24 @@ const EXPORT_COLS = [['directionGenerale', 'Direction générale'], ['direction'
   ['metier', 'Métier'], ['site', 'Site'], ['mail', 'Mail'], ['telephone', 'Téléphone'], ['teams', 'Teams'],
   ['matricule', 'Matricule'], ['grade', 'Grade'], ['cadreEmploi', "Cadre d'emploi"], ['categorie', 'Catégorie'], ['filiere', 'Filière']];
 
-const MODES = { strate: 'Niveau hiérarchique', collectivite: 'Collectivité', typePoste: 'Type de poste', pole: 'Pôle', service: 'Service', uniforme: 'Une seule couleur' };
-const CATEG_MODES = ['collectivite', 'typePoste', 'pole', 'service'];
+const MODES = { strate: 'Niveau hiérarchique', collectivite: 'Collectivité', typePoste: 'Type de poste', sorh: 'SORH', pole: 'Pôle', service: 'Service', uniforme: 'Une seule couleur' };
+const CATEG_MODES = ['collectivite', 'typePoste', 'sorh', 'pole', 'service'];
 const MAX_LEGENDE = 14;
 const MAX_LISTE = 25;
+const SEUIL_LOIN = 0.35;
+const SEUIL_MOYEN = 0.65;
+const mouvementReduit = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const dureeAnim = () => (mouvementReduit() ? 0 : 400);
+const PERSO = new Set(['prenom', 'mail', 'telephone', 'teams', 'matricule', 'grade', 'cadreEmploi', 'categorie', 'filiere']);
+const FILTRES = [['collectivite', 'Collectivité'], ['typePoste', 'Type de poste'], ['sorh', 'SORH'], ['pole', 'Pôle'], ['service', 'Service'], ['site', 'Site']];
+const COLONNES_STRUCTURE = ['directionGenerale', 'direction', 'pole', 'service', 'equipe'];
+const CHAMPS_RECHERCHE = [['tout', 'Tout'], ['nom', 'Nom'], ['fonction', 'Poste'], ['structure', 'Structure'], ['metier', 'Métier'], ['site', 'Site'], ['sorh', 'SORH']];
+const STAT_ATTRS = [['collectivite', 'Collectivité'], ['typePoste', 'Type de poste'], ['sorh', 'SORH'], ['direction', 'Direction'], ['pole', 'Pôle'],
+  ['service', 'Service'], ['equipe', 'Équipe'], ['metier', 'Métier'], ['site', 'Site'], ['grade', 'Grade'], ['cadreEmploi', "Cadre d'emploi"],
+  ['categorie', 'Catégorie'], ['filiere', 'Filière']];
+const DIM = { detaillee: { width: 270, height: 118 }, compacte: { width: 230, height: 66 } };
+const ECHELLE = { petite: 0.9, normale: 1, grande: 1.15 };
+const MODELES = { compact: { layout: 'top', compact: true }, vertical: { layout: 'top', compact: false }, horizontal: { layout: 'left', compact: true } };
 
 const state = {
   chart: null,
@@ -62,6 +76,14 @@ const state = {
   exportId: null,
   niveaux: NIVEAUX_INITIAUX,
   categories: new Map(),  // valeur -> couleur (modes collectivité / type de poste)
+  filtres: {},            // filtres actifs : clé -> valeur
+  masques: new Set(),     // branches masquées
+  vue: { rows: [], ombres: new Set(), nb: 0 },
+  nominatif: true, modele: 'compact', densite: 'detaillee', police: 'normale', afficherSorh: false,
+  logosCollectivites: new Map(), miseEnPage: '', statsId: null,
+  tabId: null,            // vignette atteignable au clavier (tabindex = 0)
+  courantId: null, resultats: [], idxResultat: -1, cleRecherche: '',
+  zoomFige: false,        // vrai pendant un export : détail complet quel que soit le zoom
   options: {}, titre: DEFAULTS.titre, couleur: DEFAULTS.couleur, mode: DEFAULTS.mode, lexique: '',
 };
 
@@ -98,6 +120,7 @@ const showMessage = (t) => { $('msg').textContent = t || ''; };
 const annoncer = (t) => { $('statut').textContent = t || ''; };
 const libelle = (r) => (r.vacant ? 'Poste vacant' : r.nom);
 /** Structure la plus précise renseignée : équipe > service > pôle > direction > direction générale. */
+const etiquette = (r) => (state.nominatif ? libelle(r) : `${r.a.fonction || 'Poste'}${r.vacant ? ' (vacant)' : ''}`);
 const structure = (r) => r.a.equipe || r.a.service || r.a.pole || r.a.direction || r.a.directionGenerale || '';
 
 function ouvrir(dlg, modal = true) {
@@ -129,9 +152,18 @@ function toRows(records, mappings) {
       parentId: Number.isFinite(parent) && parent > 0 ? parent : null,
       nom, vacant: !nom, a,
       photo: safeUrl(val(rec, 'photo')),
-      _recherche: normaliser([nom, ...Object.values(a)].join(' ')),
+      _rech: construireRecherche(nom, a),
     };
   });
+}
+
+function construireRecherche(nom, a) {
+  const n = (...cles) => normaliser(cles.map((k) => a[k]).join(' '));
+  return {
+    tout: normaliser([nom, ...Object.values(a)].join(' ')),
+    toutAnon: normaliser(Object.entries(a).filter(([k]) => !PERSO.has(k)).map(([, v]) => v).join(' ')),
+    nom: normaliser(nom), fonction: n('fonction'), structure: n(...COLONNES_STRUCTURE), metier: n('metier'), site: n('site'), sorh: n('sorh'),
+  };
 }
 
 /** Message d'erreur si la hiérarchie est inexploitable, sinon ''. */
@@ -186,7 +218,31 @@ function sousArbre(id) {
 }
 
 const racineVue = () => state.byId.get(state.focusId) || state.racine;
-const vueRows = () => (state.focusId === null ? state.rows : sousArbre(state.focusId));
+/** Postes affichés : branche courante, sans branches masquées, restreints par les filtres (les ancêtres restent, estompés). */
+function calculerVue() {
+  const racine = racineVue();
+  const base = [];
+  const pile = [racine];
+  while (pile.length) {
+    const r = pile.pop();
+    base.push(r);
+    for (const e of [...state.enfants.get(r.id)].reverse()) if (!state.masques.has(e.id)) pile.push(e);   // ordre de la table conservé
+  }
+  const actifs = FILTRES.filter(([k]) => state.filtres[k]);
+  if (!actifs.length) return { rows: base, ombres: new Set(), nb: base.length };
+  const ok = (r) => actifs.every(([k]) => r.a[k] === state.filtres[k]);
+  const trouves = base.filter(ok);
+  const garde = new Set(trouves.map((r) => r.id));
+  trouves.forEach((r) => { for (const p of ancetres(r)) garde.add(p.id); });
+  if (!garde.size) garde.add(racine.id);
+  const rows = base.filter((r) => garde.has(r.id));
+  return { rows, ombres: new Set(rows.filter((r) => !ok(r)).map((r) => r.id)), nb: trouves.length };
+}
+
+function vueRows() {
+  state.vue = calculerVue();
+  return state.vue.rows;
+}
 
 /** Ancêtres d'un agent, jusqu'à la racine de la vue courante. */
 function* ancetres(r) {
@@ -239,25 +295,35 @@ function dessinerLegende() {
    Rendu de l'organigramme
    -------------------------------------------------------------------------- */
 
+function dim() {
+  const base = DIM[state.densite] || DIM.detaillee;
+  const f = Math.max(1, ECHELLE[state.police] || 1);
+  return { width: Math.round(base.width * f), height: Math.round(base.height * f) };
+}
+
 function renderNode(d) {
   const r = d.data;
+  const nominatif = state.nominatif;
   const statut = r.a.statut;
   const draft = /draft|brouillon|travail/.test(normaliser(statut));
-  const aria = [libelle(r), r.a.fonction, structure(r)].filter(Boolean).join(', ');
-  const img = r.photo ? `<img src="${escapeHTML(r.photo)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : '';
+  const titre = etiquette(r);
+  const sousTitre = nominatif ? r.a.fonction : (r.vacant ? 'Poste vacant' : '');
+  const struct = [structure(r), state.afficherSorh && r.a.sorh ? `SORH ${r.a.sorh}` : ''].filter(Boolean).join(' · ');
+  const aria = [titre, nominatif ? r.a.fonction : '', structure(r)].filter(Boolean).join(', ');
+  const img = nominatif && r.photo ? `<img src="${escapeHTML(r.photo)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : '';
   const compte = r._nbPostes > 1
     ? `<div class="org-count" title="${r._nbAgents} agent(s) pour ${r._nbPostes} poste(s) dans la structure">${r._nbAgents} agent(s) · ${r._nbPostes} poste(s)</div>` : '';
+  const classes = ['org-card', r.vacant && 'vacant', draft && 'draft', r._highlighted && 'trouve', !nominatif && 'anon', state.vue.ombres.has(r.id) && 'ombre', r.id === state.courantId && 'courant'].filter(Boolean).join(' ');
   return `
     <div class="org-node">
-      <div class="org-card${r.vacant ? ' vacant' : ''}${draft ? ' draft' : ''}${r._highlighted ? ' trouve' : ''}"
-           style="--bg:${escapeHTML(couleur(r))}" role="button" tabindex="0" data-id="${r.id}"
+      <div class="${classes}" style="--bg:${escapeHTML(couleur(r))}" role="button" tabindex="${r.id === state.tabId ? 0 : -1}" data-id="${r.id}"
            aria-label="${escapeHTML(aria)}. Ouvrir la fiche">
         <span class="org-id" aria-hidden="true">#${r.id}</span>
-        <div class="org-photo"><span class="org-initials">${r.vacant ? '' : escapeHTML(initiales(r.nom))}</span>${img}</div>
+        <div class="org-photo"><span class="org-initials">${nominatif && !r.vacant ? escapeHTML(initiales(r.nom)) : ''}</span>${img}</div>
         <div class="org-infos">
-          <div class="org-nom" title="${escapeHTML(libelle(r))}">${escapeHTML(libelle(r))}</div>
-          <div class="org-poste">${escapeHTML(r.a.fonction)}</div>
-          <div class="org-struct">${escapeHTML(structure(r))}</div>
+          <div class="org-nom" title="${escapeHTML(titre)}">${escapeHTML(titre)}</div>
+          <div class="org-poste">${escapeHTML(sousTitre)}</div>
+          <div class="org-struct">${escapeHTML(struct)}</div>
           ${compte}
         </div>
         ${statut ? `<span class="org-tag">${escapeHTML(statut)}</span>` : ''}
@@ -271,8 +337,10 @@ function creerOrganigramme() {
     .container('.chart-container')
     .svgWidth(conteneur.clientWidth)
     .svgHeight(conteneur.clientHeight)
-    .nodeHeight(() => NODE.height)
-    .nodeWidth(() => NODE.width)
+    .nodeHeight(() => dim().height)
+    .nodeWidth(() => dim().width)
+    .layout((MODELES[state.modele] || MODELES.compact).layout)
+    .compact((MODELES[state.modele] || MODELES.compact).compact)
     .childrenMargin(() => 50)
     .compactMarginBetween(() => 35)
     .compactMarginPair(() => 30)
@@ -283,6 +351,9 @@ function creerOrganigramme() {
       const lien = d3.select(this).attr('stroke', surligne ? '#c2185b' : '#9a98a3').attr('stroke-width', surligne ? 5 : 1.5);
       if (surligne) lien.raise();
     })
+    .duration(dureeAnim())
+    .buttonContent(({ node }) => `<div class="org-btn" aria-hidden="true">${node.children ? '−' : '+'} ${node.data._directSubordinatesPaging}</div>`)
+    .onZoom((e) => majZoom(e.transform.k))
     .nodeContent(renderNode);
 
   const ouvrirCarte = (e) => {
@@ -290,8 +361,13 @@ function creerOrganigramme() {
     if (carte) ouvrirFiche(Number(carte.dataset.id));
   };
   conteneur.addEventListener('click', ouvrirCarte);
-  conteneur.addEventListener('keydown', (e) => {
-    if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('.org-card')) { e.preventDefault(); ouvrirCarte(e); }
+  conteneur.addEventListener('keydown', naviguerClavier);
+  conteneur.addEventListener('focusin', (e) => {
+    const carte = e.target.closest && e.target.closest('.org-card');
+    if (!carte) return;
+    state.tabId = Number(carte.dataset.id);
+    conteneur.querySelectorAll('.org-card[tabindex="0"]').forEach((c) => { if (c !== carte) c.setAttribute('tabindex', '-1'); });
+    carte.setAttribute('tabindex', '0');
   });
   // Photo introuvable : on la retire, les initiales restent visibles.
   conteneur.addEventListener('error', (e) => { if (e.target instanceof HTMLImageElement) e.target.remove(); }, true);
@@ -314,10 +390,115 @@ function afficher(rows) {
     if (a) FLAGS.forEach((k) => { if (a[k] !== undefined) r[k] = a[k]; });
   });
   if (state.focusId !== null && !state.byId.has(state.focusId)) state.focusId = null;
+  if (!state.byId.has(state.tabId)) state.tabId = state.racine.id;
   if (premier) { state.chart = creerOrganigramme(); appliquerNiveaux(state.niveaux); annoncer(''); }
   construireCategories();
+  majFiltres();
+  majChampsRecherche();
   majInterface();
   dessiner(premier);
+}
+
+/* --------------------------------------------------------------------------
+   Zoom sémantique et commandes de zoom
+   -------------------------------------------------------------------------- */
+
+function niveauDetail(k) { return k < SEUIL_LOIN ? 'loin' : k < SEUIL_MOYEN ? 'moyen' : 'pres'; }
+
+function majZoom(k) {
+  $('zoom-niveau').textContent = `${Math.round(k * 100)} %`;
+  if (state.zoomFige) return;
+  const zone = document.querySelector('.chart-container');
+  const niveau = niveauDetail(k);
+  if (zone.dataset.zoom !== niveau) zone.dataset.zoom = niveau;   // un seul changement d'attribut : pas de nouveau rendu
+}
+
+function figerDetail(ms) {
+  state.zoomFige = true;
+  document.querySelector('.chart-container').dataset.zoom = 'pres';
+  setTimeout(() => { state.zoomFige = false; majZoom(state.chart.lastTransform().k); }, ms);
+}
+
+function basculerPleinEcran() {
+  if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => annoncer('Plein écran indisponible dans ce contexte.'));
+}
+
+/* --------------------------------------------------------------------------
+   Clavier : flèches entre vignettes, + / - pour déplier / replier
+   -------------------------------------------------------------------------- */
+
+function deplierBranche(id) {
+  const r = state.byId.get(id);
+  r._expanded = true;
+  const visibles = vueRows().length ? new Set(vueRows().map((x) => x.id)) : new Set();
+  const enfants = state.enfants.get(id).filter((e) => visibles.has(e.id));
+  enfants.forEach((e) => { e._expanded = true; });
+  dessiner();
+  annoncer(`${etiquette(r)} : ${enfants.length} rattaché(s) affiché(s).`);
+}
+
+function condenserBranche(id) {
+  sousArbre(id).forEach((r) => { r._expanded = false; r._highlighted = false; });
+  state.byId.get(id)._expanded = true;
+  dessiner();
+  annoncer(`${etiquette(state.byId.get(id))} : branche condensée.`);
+}
+
+function focusCarte(id) {
+  setTimeout(() => {
+    const carte = document.querySelector(`.org-card[data-id="${id}"]`);
+    if (!carte) return;
+    carte.focus({ preventScroll: true });
+    const z = document.querySelector('.chart-container').getBoundingClientRect();
+    const c = carte.getBoundingClientRect();
+    const dehors = c.left < z.left || c.right > z.right || c.top < z.top || c.bottom > z.bottom;
+    if (dehors && typeof state.chart.setCentered === 'function') { state.chart.setCentered(id).render(); }
+  }, dureeAnim() + 60);
+}
+
+function naviguerClavier(e) {
+  const carte = e.target.closest && e.target.closest('.org-card');
+  if (!carte || e.ctrlKey || e.metaKey || e.altKey) return;
+  const id = Number(carte.dataset.id);
+  const r = state.byId.get(id);
+
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ouvrirFiche(id); return; }
+  if (e.key === '+' || e.key === '=') { e.preventDefault(); deplierBranche(id); focusCarte(id); return; }
+  if (e.key === '-') { e.preventDefault(); condenserBranche(id); focusCarte(id); return; }
+
+  const ordre = new Map(state.chart.data().map((d, i) => [d.id, i]));
+  const visibles = new Set([...document.querySelectorAll('.chart-container .org-card')].map((c) => Number(c.dataset.id)));
+  const parent = id === racineVue().id ? null : state.byId.get(r.parentId);
+  const triees = (liste) => liste.filter((x) => visibles.has(x.id)).sort((a, b) => ordre.get(a.id) - ordre.get(b.id));
+  let cible = null;
+  if (e.key === 'ArrowUp') cible = parent && visibles.has(parent.id) ? parent : null;
+  else if (e.key === 'ArrowDown') cible = triees(state.enfants.get(id))[0] || null;
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    const fratrie = parent ? triees(state.enfants.get(parent.id)) : [];
+    const i = fratrie.findIndex((x) => x.id === id);
+    cible = fratrie[i + (e.key === 'ArrowRight' ? 1 : -1)] || null;
+  } else if (e.key === 'Home') cible = racineVue();
+  else return;
+
+  e.preventDefault();
+  if (cible) { state.tabId = cible.id; focusCarte(cible.id); const el = document.querySelector(`.org-card[data-id="${cible.id}"]`); if (el) el.focus({ preventScroll: true }); }
+}
+
+/* --------------------------------------------------------------------------
+   Résultats de recherche : Entrée / Maj+Entrée pour passer de l'un à l'autre
+   -------------------------------------------------------------------------- */
+
+function allerResultat(delta) {
+  const cle = `${$('recherche').value}|${$('champ-recherche').value}`;
+  if (cle !== state.cleRecherche) appliquerRecherche();
+  const n = state.resultats.length;
+  if (!n) return;
+  state.idxResultat = (state.idxResultat + delta + n) % n;
+  const id = state.resultats[state.idxResultat];
+  state.courantId = id;
+  dessiner();
+  if (typeof state.chart.setCentered === 'function') state.chart.setCentered(id).render();
+  annoncer(`Résultat ${state.idxResultat + 1}/${n} : ${etiquette(state.byId.get(id))}.`);
 }
 
 /* --------------------------------------------------------------------------
@@ -339,6 +520,7 @@ function changerNiveaux(n) { appliquerNiveaux(n); dessiner(true); annoncer(''); 
 
 function focaliser(id) {
   state.focusId = !id || id === state.racine.id ? null : id;
+  state.masques.delete(id);
   appliquerNiveaux(state.niveaux);
   majInterface();
   dessiner(true);
@@ -348,8 +530,10 @@ function focaliser(id) {
 function rendreVisible(id) {
   const r = state.byId.get(id);
   if (!r) return null;
-  const dansVue = state.focusId === null || id === state.focusId || [...ancetres(r)].some((p) => p.id === state.focusId);
-  if (!dansVue) { state.focusId = null; majInterface(); }
+  const dansFocus = state.focusId === null || id === state.focusId || [...ancetres(r)].some((p) => p.id === state.focusId);
+  if (!dansFocus) state.focusId = null;
+  if (!vueRows().some((x) => x.id === id)) { state.filtres = {}; state.masques.clear(); majFiltres(); }
+  majInterface();
   r._expanded = true;
   return r;
 }
@@ -361,7 +545,7 @@ function aller(id) {
   r._highlighted = true;
   dessiner();
   if (typeof state.chart.setCentered === 'function') state.chart.setCentered(id).render(); else state.chart.fit();
-  annoncer(`${libelle(r)} affiché dans l'organigramme.`);
+  annoncer(`${etiquette(r)} affiché dans l'organigramme.`);
 }
 
 function chemin(id) {
@@ -384,10 +568,11 @@ function formaterValeur(cle, v) {
   return e;
 }
 
-const lignesDl = (paires, r) => paires.filter(([k]) => r.a[k]).map(([k, l]) => `<dt>${l}</dt><dd>${formaterValeur(k, r.a[k])}</dd>`).join('');
+const lignesDl = (paires, r) => paires.filter(([k]) => r.a[k] && (state.nominatif || !PERSO.has(k))).map(([k, l]) => `<dt>${l}</dt><dd>${formaterValeur(k, r.a[k])}</dd>`).join('');
 
 function lienAgent(e) {
-  return `<button type="button" class="lien" data-action="aller" data-id="${e.id}">${escapeHTML(libelle(e) + (e.a.fonction ? ` — ${e.a.fonction}` : ''))}</button>`;
+  const txt = state.nominatif ? libelle(e) + (e.a.fonction ? ` — ${e.a.fonction}` : '') : etiquette(e);
+  return `<button type="button" class="lien" data-action="aller" data-id="${e.id}">${escapeHTML(txt)}</button>`;
 }
 
 function listeAgents(rows) {
@@ -406,15 +591,16 @@ function ouvrirFiche(id) {
   const struct = lignesDl(FICHE_STRUCT, r);
   const indiv = lignesDl(FICHE_INDIV, r);
   const rh = lignesDl(FICHE_RH, r);
-  const img = r.photo ? `<img src="${escapeHTML(r.photo)}" alt="" referrerpolicy="no-referrer">` : '';
+  const img = state.nominatif && r.photo ? `<img src="${escapeHTML(r.photo)}" alt="" referrerpolicy="no-referrer">` : '';
+  const estRacineVue = id === racineVue().id;
 
   $('fiche').innerHTML = `
     <button type="button" class="icone" data-action="fermer" aria-label="Fermer la fiche" style="position:absolute;top:8px;right:8px">✖</button>
     <div class="fiche-tete">
-      <div class="org-photo"><span class="org-initials">${r.vacant ? '' : escapeHTML(initiales(r.nom))}</span>${img}</div>
+      <div class="org-photo"><span class="org-initials">${state.nominatif && !r.vacant ? escapeHTML(initiales(r.nom)) : ''}</span>${img}</div>
       <div>
-        <h2 id="fiche-titre">${escapeHTML(libelle(r))}</h2>
-        <div>${escapeHTML(r.a.fonction)}</div>
+        <h2 id="fiche-titre">${escapeHTML(etiquette(r))}</h2>
+        <div>${state.nominatif ? escapeHTML(r.a.fonction) : ''}</div>
         <div class="vide">${escapeHTML(structure(r))}</div>
       </div>
     </div>
@@ -432,6 +618,9 @@ function ouvrirFiche(id) {
     <div class="actions">
       <button type="button" data-action="chemin" data-id="${id}">Chemin jusqu'au N°1</button>
       ${subs.length ? `<button type="button" data-action="branche" data-id="${id}">Afficher cette branche seule</button>` : ''}
+      ${subs.length ? `<button type="button" data-action="condenser" data-id="${id}">Condenser cette branche</button>` : ''}
+      ${estRacineVue ? '' : `<button type="button" data-action="masquer" data-id="${id}">Masquer cette branche</button>`}
+      <button type="button" data-action="stats" data-id="${id}">Comptages…</button>
       <button type="button" data-action="export" data-id="${id}">Exporter cette structure…</button>
       <button type="button" data-action="fermer">Fermer</button>
     </div>`;
@@ -445,25 +634,156 @@ const ACTIONS = {
   chemin: (id) => { fermer($('dlg-fiche')); chemin(id); },
   branche: (id) => { fermer($('dlg-fiche')); focaliser(id); },
   export: (id) => { fermer($('dlg-fiche')); ouvrirExport(id); },
+  stats: (id) => { fermer($('dlg-fiche')); ouvrirStats(id); },
+  masquer: (id) => {
+    fermer($('dlg-fiche'));
+    state.masques.add(id);
+    majInterface();
+    dessiner(true);
+    annoncer('Branche masquée.');
+  },
+  condenser: (id) => { fermer($('dlg-fiche')); condenserBranche(id); },
+  filtrer: (_id, btn) => {
+    fermer($('dlg-stats'));
+    state.filtres[btn.dataset.cle] = btn.dataset.valeur;
+    majFiltres();
+    appliquerFiltres();
+  },
+  razfiltres: () => { state.filtres = {}; majFiltres(); appliquerFiltres(); },
 };
 
 /* --------------------------------------------------------------------------
    Recherche (tous les attributs associés)
    -------------------------------------------------------------------------- */
 
-function filtrer(texte) {
+function appliquerRecherche() {
   if (!state.chart) return;
-  const mots = normaliser(texte).split(/\s+/).filter(Boolean);
-  if (!mots.length) { changerNiveaux(state.niveaux); return; }
+  const mots = normaliser($('recherche').value).split(/\s+/).filter(Boolean);
+  if (!mots.length) { state.resultats = []; state.courantId = null; state.cleRecherche = ''; changerNiveaux(state.niveaux); return; }
 
+  const champ = $('champ-recherche').value || 'tout';
+  const cle = champ === 'tout' && !state.nominatif ? 'toutAnon' : champ;
   const rows = vueRows();
   state.chart.clearHighlighting();
   rows.forEach((r) => { r._expanded = false; r._highlighted = false; });
-  const trouves = rows.filter((r) => mots.every((m) => r._recherche.includes(m)));
+  const trouves = rows.filter((r) => !state.vue.ombres.has(r.id) && mots.every((m) => r._rech[cle].includes(m)));
   racineVue()._expanded = true;
   trouves.forEach((r) => { r._highlighted = true; r._expanded = true; });
+  state.resultats = trouves.map((r) => r.id);
+  state.idxResultat = -1;
+  state.courantId = null;
+  state.cleRecherche = `${$('recherche').value}|${$('champ-recherche').value}`;
   dessiner(true);
-  annoncer(trouves.length ? `${trouves.length} résultat(s)${state.focusId !== null ? ' dans la branche affichée' : ''}.` : 'Aucun résultat.');
+  annoncer(trouves.length ? `${trouves.length} résultat(s)${state.focusId !== null ? ' dans la branche affichée' : ''}. Entrée pour les parcourir.` : 'Aucun résultat.');
+}
+
+function majChampsRecherche() {
+  const sel = $('champ-recherche');
+  const precedent = sel.value;
+  const m = state.mappings || {};
+  const dispo = CHAMPS_RECHERCHE.filter(([k]) => {
+    if (k === 'tout' || k === 'fonction') return true;
+    if (k === 'nom') return state.nominatif;
+    if (k === 'structure') return COLONNES_STRUCTURE.some((c) => m[c]);
+    return Boolean(m[k]);
+  });
+  sel.replaceChildren(...dispo.map(([k, l]) => new Option(l, k)));
+  sel.value = dispo.some(([k]) => k === precedent) ? precedent : 'tout';
+}
+
+/* --------------------------------------------------------------------------
+   Filtres (collectivité, type de poste, SORH, pôle, service, site)
+   -------------------------------------------------------------------------- */
+
+function majFiltres() {
+  const corps = $('filtres-corps');
+  const selCol = $('sel-collectivite');
+  corps.replaceChildren();
+  selCol.replaceChildren();
+  selCol.dataset.filtre = 'collectivite';
+  selCol.parentElement.hidden = true;
+
+  FILTRES.forEach(([cle, label]) => {
+    const valeurs = state.mappings && state.mappings[cle]
+      ? [...new Set(state.rows.map((r) => r.a[cle]).filter(Boolean))].sort((x, y) => x.localeCompare(y, 'fr')) : [];
+    if (!valeurs.length) { delete state.filtres[cle]; return; }
+    const sel = cle === 'collectivite' ? selCol : document.createElement('select');
+    sel.dataset.filtre = cle;
+    sel.add(new Option(cle === 'collectivite' ? 'Toutes (mutualisé)' : 'Tous', ''));
+    valeurs.forEach((v) => sel.add(new Option(v, v)));
+    if (!valeurs.includes(state.filtres[cle])) delete state.filtres[cle];
+    sel.value = state.filtres[cle] || '';
+    if (cle === 'collectivite') { selCol.parentElement.hidden = false; return; }
+    const lab = document.createElement('label');
+    lab.append(`${label} `, sel);
+    corps.append(lab);
+  });
+
+  if (corps.children.length) {
+    const raz = document.createElement('button');
+    raz.type = 'button';
+    raz.dataset.action = 'razfiltres';
+    raz.textContent = 'Réinitialiser les filtres';
+    corps.append(raz);
+  }
+  $('filtres').hidden = !corps.children.length;
+  majLogos();
+}
+
+function appliquerFiltres() {
+  majLogos();
+  changerNiveaux(state.niveaux);
+  majInterface();
+  if ($('recherche').value.trim()) { appliquerRecherche(); return; }
+  if (FILTRES.some(([k]) => state.filtres[k])) {
+    annoncer(state.vue.nb ? `${state.vue.nb} poste(s) correspondent aux filtres.` : 'Aucun poste ne correspond aux filtres.');
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Comptages par attribut
+   -------------------------------------------------------------------------- */
+
+function ouvrirStats(id) {
+  const r = state.byId.get(id) || racineVue();
+  state.statsId = r.id;
+  $('stats-structure').textContent = [etiquette(r), structure(r)].filter(Boolean).join(' — ');
+  const sel = $('stats-attribut');
+  const precedent = sel.value;
+  const dispo = STAT_ATTRS.filter(([k]) => state.mappings && state.mappings[k] && (state.nominatif || !PERSO.has(k)));
+  sel.replaceChildren(...dispo.map(([k, l]) => new Option(l, k)));
+  if (dispo.some(([k]) => k === precedent)) sel.value = precedent;
+  if (dispo.length) dessinerStats(); else $('stats-corps').textContent = 'Associez au moins une colonne d\'attribut (collectivité, grade, filière…).';
+  ouvrir($('dlg-stats'));
+}
+
+function dessinerStats() {
+  const cle = $('stats-attribut').value;
+  const rows = sousArbre(state.statsId);
+  const groupes = new Map();
+  rows.forEach((r) => {
+    const v = r.a[cle] || '';
+    const g = groupes.get(v) || { postes: 0, agents: 0 };
+    g.postes += 1;
+    if (!r.vacant) g.agents += 1;
+    groupes.set(v, g);
+  });
+  const lignes = [...groupes.entries()].sort((a, b) => b[1].postes - a[1].postes || a[0].localeCompare(b[0], 'fr'));
+  const filtrable = FILTRES.some(([k]) => k === cle);
+  const agents = rows.filter((r) => !r.vacant).length;
+  $('stats-corps').innerHTML = `
+    <table class="stats-table">
+      <thead><tr><th>Valeur</th><th class="n">Agents</th><th class="n">Postes</th><th>Part des postes</th></tr></thead>
+      <tbody>${lignes.map(([v, g]) => {
+        const pct = Math.round((g.postes / rows.length) * 100);
+        const nom = v || 'Non renseigné';
+        const lien = filtrable && v
+          ? `<button type="button" class="lien" data-action="filtrer" data-cle="${escapeHTML(cle)}" data-valeur="${escapeHTML(v)}">${escapeHTML(nom)}</button>` : escapeHTML(nom);
+        return `<tr><td>${lien}</td><td class="n">${g.agents}</td><td class="n">${g.postes}</td>
+          <td><span class="barre" style="width:${pct}%" title="${pct} %"></span></td></tr>`;
+      }).join('')}</tbody>
+      <tfoot><tr><th>Total</th><th class="n">${agents}</th><th class="n">${rows.length}</th><th></th></tr></tfoot>
+    </table>`;
 }
 
 /* --------------------------------------------------------------------------
@@ -473,7 +793,7 @@ function filtrer(texte) {
 function ouvrirExport(id) {
   const r = state.byId.get(id) || racineVue();
   state.exportId = r.id;
-  $('export-structure').textContent = [libelle(r), structure(r)].filter(Boolean).join(' — ');
+  $('export-structure').textContent = [etiquette(r), structure(r)].filter(Boolean).join(' — ');
   ouvrir($('dlg-export'));
 }
 
@@ -501,23 +821,61 @@ function celluleCSV(v) {
 function exporterCSV() {
   const racine = state.byId.get(state.exportId);
   const rows = lignesExport(racine.id, $('export-niveaux').value);
-  const cols = EXPORT_COLS.filter(([k]) => state.mappings && state.mappings[k]);
-  const entete = ['Niveau', 'Nom', 'Poste', 'Structure', 'N+1', ...cols.map(([, l]) => l), "Nb agents (structure)", "Nb postes (structure)"];
+  const nominatif = state.nominatif;
+  const cols = EXPORT_COLS.filter(([k]) => state.mappings && state.mappings[k] && (nominatif || !PERSO.has(k)));
+  const entete = ['Niveau', ...(nominatif ? ['Nom'] : []), 'Poste', 'Structure', 'N+1', 'Poste vacant', ...cols.map(([, l]) => l), 'Nb agents (structure)', 'Nb postes (structure)'];
   const lignes = rows.map((r) => [
-    r._depth - racine._depth + 1, libelle(r), r.a.fonction, structure(r),
-    r.id === racine.id ? '' : libelle(state.byId.get(r.parentId)),
+    r._depth - racine._depth + 1, ...(nominatif ? [libelle(r)] : []), r.a.fonction, structure(r),
+    r.id === racine.id ? '' : etiquette(state.byId.get(r.parentId)), r.vacant ? 'Oui' : 'Non',
     ...cols.map(([k]) => r.a[k]), r._nbAgents, r._nbPostes,
   ]);
   const csv = '\ufeff' + [entete, ...lignes].map((l) => l.map(celluleCSV).join(';')).join('\r\n');
   const lien = document.createElement('a');
   lien.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-  lien.download = `organigramme_${normaliser(libelle(racine)).replace(/[^a-z0-9]+/g, '-').slice(0, 40) || 'export'}.csv`;
+  lien.download = `organigramme_${normaliser(etiquette(racine)).replace(/[^a-z0-9]+/g, '-').slice(0, 40) || 'export'}.csv`;
   document.body.appendChild(lien);
   lien.click();
   lien.remove();
   setTimeout(() => URL.revokeObjectURL(lien.href), 1000);
   fermer($('dlg-export'));
   annoncer(`${rows.length} ligne(s) exportée(s).`);
+}
+
+/** Convertit les photos en données locales ; celles dont l'hébergeur refuse le CORS sont retirées (initiales). */
+async function preparerPhotos() {
+  const imgs = [...document.querySelectorAll('.chart-container .org-photo img')];
+  let retirees = 0;
+  await Promise.all(imgs.map(async (img) => {
+    try {
+      const rep = await fetch(img.src, { mode: 'cors', referrerPolicy: 'no-referrer' });
+      if (!rep.ok) throw new Error('http');
+      const blob = await rep.blob();
+      img.src = await new Promise((ok, ko) => { const f = new FileReader(); f.onload = () => ok(f.result); f.onerror = ko; f.readAsDataURL(blob); });
+    } catch { img.remove(); retirees += 1; }
+  }));
+  return retirees;
+}
+
+async function exporterImage(format) {
+  const id = state.exportId;
+  const n = $('export-niveaux').value;
+  fermer($('dlg-export'));
+  state.focusId = id === state.racine.id ? null : id;
+  appliquerNiveaux(n);
+  majInterface();
+  dessiner(true);
+  figerDetail(12000);
+  annoncer('Préparation de l\'image…');
+  await new Promise((ok) => setTimeout(ok, dureeAnim() + 300));
+  if (format === 'svg') {
+    state.chart.exportSvg();
+    annoncer('Image SVG générée.');
+  } else {
+    const retirees = await preparerPhotos();
+    state.chart.exportImg({ full: true, scale: 2, backgroundColor: getComputedStyle(document.body).getPropertyValue('--surface').trim() || '#ffffff' });
+    annoncer(retirees ? `Image PNG générée ; ${retirees} photo(s) remplacée(s) par les initiales (hébergeur sans CORS).` : 'Image PNG générée.');
+    setTimeout(() => dessiner(), 4000);   // restitue les photos retirées du DOM
+  }
 }
 
 function exporterPDF() {
@@ -545,8 +903,14 @@ function majInterface() {
   });
   sel.value = modeEffectif();
   $('sel-niveaux').value = state.niveaux;
+  $('sel-modele').value = state.modele;
+  $('chk-anon').checked = !state.nominatif;
   $('btn-complet').hidden = state.focusId === null;
-  if (state.focusId !== null) $('btn-complet').textContent = `Retour à l'organigramme complet (branche : ${libelle(state.byId.get(state.focusId))})`;
+  if (state.focusId !== null) $('btn-complet').textContent = `Retour à l'organigramme complet (branche : ${etiquette(state.byId.get(state.focusId))})`;
+  $('btn-masques').hidden = state.masques.size === 0;
+  $('btn-masques').textContent = `Branches masquées (${state.masques.size}) — tout afficher`;
+  const nbFiltres = FILTRES.filter(([k]) => state.filtres[k]).length;
+  $('filtres').querySelector('summary').textContent = nbFiltres ? `Filtres (${nbFiltres})` : 'Filtres';
   if (state.rows.length) dessinerLegende();
 }
 
@@ -561,15 +925,51 @@ function appliquerOptions(options) {
   $('titre').textContent = state.titre;
   document.title = state.titre;
   document.documentElement.style.setProperty('--vignette', state.couleur);
-  [['logo1', opts.logo1], ['logo2', opts.logo2]].forEach(([id, url]) => {
-    const img = $(id);
-    const u = safeUrl(url);
-    img.hidden = !u;
-    if (u) img.src = u; else img.removeAttribute('src');
-  });
+  state.nominatif = opts.nominatif !== false;
+  state.modele = MODELES[opts.modele] ? opts.modele : 'compact';
+  state.densite = DIM[opts.densite] ? opts.densite : 'detaillee';
+  state.police = ECHELLE[opts.police] ? opts.police : 'normale';
+  state.afficherSorh = opts.afficherSorh === true;
+  state.logosCollectivites = new Map(String(opts.logosCollectivites || '').split(/\r?\n/).map((l) => {
+    const k = l.indexOf('=');
+    return k > 0 ? [normaliser(l.slice(0, k).trim()), safeUrl(l.slice(k + 1))] : null;
+  }).filter((e) => e && e[1]));
+  majLogos();
+  majChampsRecherche();
+  const signature = `${state.modele}|${state.densite}|${state.police}`;
+  const refit = signature !== state.miseEnPage;
+  state.miseEnPage = signature;
+  appliquerMiseEnPage();
   $('btn-lexique').hidden = !state.lexique.trim();
 
-  if (state.chart) { construireCategories(); majInterface(); dessiner(); }
+  if (state.chart) {
+    construireCategories();
+    majInterface();
+    if (!state.nominatif) fermer($('dlg-fiche'));
+    dessiner(refit);
+    if ($('recherche').value.trim()) appliquerRecherche();
+  }
+}
+
+function appliquerMiseEnPage() {
+  document.documentElement.dataset.densite = state.densite;
+  document.documentElement.style.setProperty('--fs', ECHELLE[state.police] || 1);
+  if (state.chart) {
+    const m = MODELES[state.modele] || MODELES.compact;
+    state.chart.layout(m.layout).compact(m.compact);
+  }
+}
+
+/** Logos : ceux de la configuration, ou celui de la collectivité filtrée s'il existe. */
+function majLogos() {
+  const col = state.filtres.collectivite;
+  const specifique = col && state.logosCollectivites.get(normaliser(col));
+  const urls = specifique ? [specifique] : [safeUrl(state.options.logo1), safeUrl(state.options.logo2)];
+  ['logo1', 'logo2'].forEach((id, i) => {
+    const img = $(id);
+    img.hidden = !urls[i];
+    if (urls[i]) { img.src = urls[i]; img.alt = col ? `Logo ${col}` : 'Logo'; } else img.removeAttribute('src');
+  });
 }
 
 const sauverOptions = (partiel) => grist.setOptions({ ...state.options, ...partiel });
@@ -580,6 +980,10 @@ function ouvrirConfig() {
   $('input-logo1').value = state.options.logo1 || '';
   $('input-logo2').value = state.options.logo2 || '';
   $('input-lexique').value = state.lexique;
+  $('input-logos').value = state.options.logosCollectivites || '';
+  $('input-densite').value = state.densite;
+  $('input-police').value = state.police;
+  $('chk-sorh').checked = state.afficherSorh;
   ouvrir($('dlg-config'));
 }
 
@@ -590,6 +994,10 @@ async function enregistrerConfig() {
     logo1: $('input-logo1').value.trim(),
     logo2: $('input-logo2').value.trim(),
     lexique: $('input-lexique').value,
+    logosCollectivites: $('input-logos').value,
+    densite: $('input-densite').value,
+    police: $('input-police').value,
+    afficherSorh: $('chk-sorh').checked,
   });
   fermer($('dlg-config'));
 }
@@ -608,24 +1016,63 @@ function ouvrirLexique() {
    Initialisation
    -------------------------------------------------------------------------- */
 
+function majSynchro(records, mappings) {
+  const col = mappings.synchro;
+  let max = 0;
+  let brut = '';
+  if (col) {
+    records.forEach((rec) => {
+      const v = rec[col];
+      const t = typeof v === 'number' ? v * 1000 : Date.parse(v);
+      if (Number.isFinite(t)) max = Math.max(max, t); else if (v && !brut) brut = String(v);
+    });
+  }
+  const texte = max ? new Date(max).toLocaleString('fr-FR') : brut;
+  $('synchro').textContent = texte ? `Dernière synchronisation : ${texte}` : '';
+}
+
 grist.ready({ requiredAccess: 'read table', columns: COLUMNS });
 grist.onOptions(appliquerOptions);
 
 grist.onRecords((records, mappings) => {
   if (!mappings) { showMessage('Associez les colonnes dans la configuration du widget.'); return; }
   state.mappings = mappings;
+  majSynchro(records, mappings);
   const rows = toRows(records, mappings);
   const erreur = validerHierarchie(rows);
   showMessage(erreur);
   if (!erreur) afficher(rows);
 });
 
-$('recherche').addEventListener('input', debounce((e) => filtrer(e.target.value), 200));
+$('recherche').addEventListener('input', debounce(appliquerRecherche, 200));
+$('champ-recherche').addEventListener('change', appliquerRecherche);
+$('sel-modele').addEventListener('change', (e) => sauverOptions({ modele: e.target.value }));
+$('chk-anon').addEventListener('change', (e) => sauverOptions({ nominatif: !e.target.checked }));
+$('btn-stats').addEventListener('click', () => state.chart && ouvrirStats(racineVue().id));
+$('stats-attribut').addEventListener('change', dessinerStats);
+$('btn-masques').addEventListener('click', () => { state.masques.clear(); majInterface(); dessiner(true); });
+document.addEventListener('change', (e) => {
+  const cle = e.target.dataset && e.target.dataset.filtre;
+  if (!cle) return;
+  if (e.target.value) state.filtres[cle] = e.target.value; else delete state.filtres[cle];
+  appliquerFiltres();
+});
 $('sel-mode').addEventListener('change', (e) => sauverOptions({ modeCouleur: e.target.value }));
 $('sel-niveaux').addEventListener('change', (e) => { $('recherche').value = ''; changerNiveaux(e.target.value); });
 $('btn-deplier').addEventListener('click', () => { $('sel-niveaux').value = 'tous'; changerNiveaux('tous'); });
 $('btn-replier').addEventListener('click', () => { $('sel-niveaux').value = '0'; changerNiveaux('0'); });
 $('btn-ajuster').addEventListener('click', () => state.chart && state.chart.fit());
+$('btn-zoom-plus').addEventListener('click', () => state.chart && state.chart.zoomIn());
+$('btn-zoom-moins').addEventListener('click', () => state.chart && state.chart.zoomOut());
+if (document.fullscreenEnabled) { $('btn-plein-ecran').hidden = false; $('btn-plein-ecran').addEventListener('click', basculerPleinEcran); }
+$('btn-export-png').addEventListener('click', () => exporterImage('png'));
+$('btn-export-svg').addEventListener('click', () => exporterImage('svg'));
+$('recherche').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); allerResultat(e.shiftKey ? -1 : 1); }
+});
+document.addEventListener('click', (e) => {
+  document.querySelectorAll('details.menu[open]').forEach((d) => { if (!d.contains(e.target)) d.open = false; });
+});
 $('btn-complet').addEventListener('click', () => focaliser(null));
 $('btn-export').addEventListener('click', () => state.chart && ouvrirExport(racineVue().id));
 $('btn-export-csv').addEventListener('click', exporterCSV);
@@ -642,12 +1089,19 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('keydown', (e) => {
   const fiche = $('dlg-fiche');
+  if (e.key === 'Escape') document.querySelectorAll('details.menu[open]').forEach((d) => { d.open = false; });
   if (e.key === 'Escape' && (fiche.open || fiche.hasAttribute('open'))) fermer(fiche);
   const saisie = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
   if (e.key === '/' && !saisie) { e.preventDefault(); $('recherche').focus(); }
 });
 
-window.addEventListener('beforeprint', () => state.chart && state.chart.fit());
+window.addEventListener('beforeprint', () => {
+  if (!state.chart) return;
+  state.zoomFige = true;
+  document.querySelector('.chart-container').dataset.zoom = 'pres';
+  state.chart.fit();
+});
+window.addEventListener('afterprint', () => { state.zoomFige = false; if (state.chart) majZoom(state.chart.lastTransform().k); });
 window.addEventListener('resize', debounce(() => {
   if (!state.chart) return;
   const c = document.querySelector('.chart-container');
