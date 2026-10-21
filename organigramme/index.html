@@ -69,6 +69,21 @@
     #barre button { padding: 4px 10px; }
     .sep { width: 1px; height: 22px; background: var(--bordure); }
 
+    details.menu { position: relative; }
+    details.menu summary { list-style: none; cursor: pointer; padding: 4px 10px; border: 1px solid var(--bordure); border-radius: 8px; background: var(--surface); box-shadow: var(--ombre); }
+    details.menu[open] summary { border-color: var(--accent); }
+    .menu-corps {
+      position: absolute; z-index: 50; top: calc(100% + 6px); left: 0; display: grid; gap: 8px; min-width: 280px; padding: 12px;
+      background: var(--surface); border: 1px solid var(--bordure); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
+    }
+    .menu-corps label { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+    #champ-recherche { padding: 6px 8px; }
+    .infos { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    #synchro { margin: 0; font-size: .8rem; color: var(--texte-2); }
+    .stats-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: .9rem; }
+    .stats-table th, .stats-table td { padding: 4px 6px; text-align: left; border-bottom: 1px solid var(--bordure); }
+    .stats-table td.n { text-align: right; white-space: nowrap; }
+    .barre { display: block; height: 8px; min-width: 2px; border-radius: 4px; background: var(--accent); }
     #legende { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; font-size: .8rem; color: var(--texte-2); }
     #legende li { display: inline-flex; align-items: center; gap: 6px; }
     #legende i { width: 14px; height: 14px; border: 1px solid var(--bordure); border-radius: 4px; display: inline-block; }
@@ -77,10 +92,37 @@
     #msg { margin: 0; padding: 8px 12px; border-radius: 8px; background: #fde7ea; color: #8a0018; white-space: pre-line; }
     #msg:empty { display: none; }
 
+    .zone { position: relative; flex: 1 1 auto; min-height: 0; display: flex; }
     .chart-container {
-      flex: 1 1 auto; min-height: 0; border: 1px solid var(--bordure); border-bottom: 0;
+      flex: 1 1 auto; min-width: 0; border: 1px solid var(--bordure); border-bottom: 0;
       border-radius: 12px 12px 0 0; background: var(--surface); overflow: hidden;
     }
+    .zoomctl {
+      position: absolute; right: 14px; bottom: 14px; z-index: 5; display: flex; align-items: center; gap: 4px;
+      padding: 4px; border: 1px solid var(--bordure); border-radius: 12px; background: var(--surface); box-shadow: var(--ombre);
+    }
+    .zoomctl button { min-width: 36px; min-height: 36px; justify-content: center; padding: 4px 8px; border-color: transparent; box-shadow: none; font-size: 1.05rem; }
+    #zoom-niveau { min-width: 3.2em; text-align: center; font-size: .8rem; color: var(--texte-2); }
+
+    /* Zoom sémantique : le niveau de détail dépend du zoom (loin < 35 %, moyen < 65 %) */
+    .chart-container[data-zoom="moyen"] :is(.org-photo, .org-struct, .org-count, .org-id, .org-tag),
+    .chart-container[data-zoom="loin"] :is(.org-photo, .org-poste, .org-struct, .org-count, .org-id, .org-tag) { display: none; }
+    .chart-container[data-zoom="loin"] .org-card { justify-content: center; text-align: center; }
+    .chart-container[data-zoom="loin"] .org-nom {
+      font-size: 2.2em; line-height: 1.1; white-space: normal; text-align: center;
+      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    }
+    html[data-densite="compacte"] .chart-container[data-zoom="loin"] .org-nom { -webkit-line-clamp: 2; }
+
+    /* Bouton de dépliage personnalisé (compteur de rattachés) */
+    .org-btn {
+      display: inline-flex; align-items: center; gap: 4px; margin: auto; padding: 2px 9px; font-size: 11px; font-weight: 650;
+      color: #14122b; background: #fff; border: 1px solid #8a8797; border-radius: 999px; box-shadow: 0 1px 2px rgba(0, 0, 0, .2);
+    }
+    .node-button-foreign-object { cursor: pointer; }
+    .org-card.courant { box-shadow: 0 0 0 4px var(--accent); }
+    .org-card:focus-visible { outline: 4px solid var(--accent); outline-offset: 2px; }
+    @media (prefers-reduced-motion: reduce) { .org-card { transition: none; } }
 
     /* ---------- Vignette d'un agent ---------- */
     .org-node { height: 100%; padding: 4px 1px 14px; }
@@ -91,6 +133,11 @@
       box-shadow: var(--ombre); transition: box-shadow .15s, transform .15s;
     }
     .org-card:hover { box-shadow: 0 4px 12px rgba(20, 18, 43, .25); transform: translateY(-1px); }
+    .org-card { font-size: calc(14px * var(--fs, 1)); }
+    .org-card.ombre { opacity: .4; }
+    .org-card.anon .org-photo { display: none; }
+    html[data-densite="compacte"] .org-photo, html[data-densite="compacte"] .org-struct { display: none; }
+    html[data-densite="compacte"] .org-poste { -webkit-line-clamp: 1; }
     .org-card.vacant { border: 2px dashed #6b6877; }
     .org-card.draft { border: 2px dashed #0b4f9c; }
     .org-card.trouve { outline: 4px solid var(--trouve); outline-offset: 1px; }
@@ -102,13 +149,13 @@
     .org-initials { font-size: 18px; font-weight: 650; color: #4d4a57; }
     .org-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
     .org-infos { min-width: 0; flex: 1; line-height: 1.25; }
-    .org-nom { font-size: 14px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .org-nom { font-size: 1em; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .vacant .org-nom { font-style: italic; }
-    .org-poste { font-size: 11px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    .org-struct, .org-count { font-size: 10px; color: #4d4a57; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .org-poste { font-size: .8em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .org-struct, .org-count { font-size: .72em; color: #4d4a57; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .org-count { font-weight: 600; }
-    .org-id { position: absolute; top: 3px; right: 8px; font-size: 9px; color: #4d4a57; }
-    .org-tag { position: absolute; bottom: 3px; right: 8px; font-size: 9px; padding: 0 6px; border-radius: 8px; background: #fff; border: 1px solid #0b4f9c; color: #0b4f9c; }
+    .org-id { position: absolute; top: 3px; right: 8px; font-size: .65em; color: #4d4a57; }
+    .org-tag { position: absolute; bottom: 3px; right: 8px; font-size: .65em; padding: 0 6px; border-radius: 8px; background: #fff; border: 1px solid #0b4f9c; color: #0b4f9c; }
 
     /* ---------- Boîtes de dialogue et panneau latéral ---------- */
     dialog {
@@ -142,7 +189,7 @@
     @page { size: A4 landscape; margin: 8mm; }
     @media print {
       :root { --fond: #fff; --surface: #fff; --texte: #14122b; --texte-2: #4d4a57; --bordure: #d9d7e0; --lien-arbre: #9a98a3; }
-      #barre, header > :not(.logos):not(#titre), #statut, dialog { display: none !important; }
+      #barre, .zoomctl, header > :not(.logos):not(#titre), .infos, dialog { display: none !important; }
       html, body { height: auto; padding: 0; background: #fff; }
       .chart-container { height: auto; border: 0; }
       .chart-container svg { max-width: 100%; height: auto; }
@@ -158,38 +205,64 @@
     <div role="search">
       <label class="sr-only" for="recherche">Rechercher un agent, un poste ou une structure</label>
       <input id="recherche" type="search" placeholder="Rechercher…  ( / )" autocomplete="off">
+      <label class="sr-only" for="champ-recherche">Attribut de la recherche</label>
+      <select id="champ-recherche"></select>
     </div>
     <button id="btn-config" class="icone" type="button" aria-label="Configuration" title="Configuration">⚙</button>
   </header>
 
   <div id="barre" role="toolbar" aria-label="Outils de l'organigramme">
     <div class="groupe">
-      <label>Couleur par <select id="sel-mode"></select></label>
+      <label>Collectivité <select id="sel-collectivite"></select></label>
+      <details id="filtres" class="menu"><summary>Filtres</summary><div id="filtres-corps" class="menu-corps"></div></details>
       <label>Sous-niveaux
         <select id="sel-niveaux">
           <option value="0">0</option><option value="1">1</option><option value="2" selected>2</option>
           <option value="3">3</option><option value="4">4</option><option value="tous">Tous</option>
         </select>
       </label>
-    </div>
-    <span class="sep" aria-hidden="true"></span>
-    <div class="groupe">
       <button id="btn-deplier" type="button">Tout déplier</button>
       <button id="btn-replier" type="button">Tout replier</button>
-      <button id="btn-ajuster" type="button">Ajuster</button>
     </div>
     <span class="sep" aria-hidden="true"></span>
     <div class="groupe">
+      <details id="affichage" class="menu"><summary>Affichage</summary>
+        <div class="menu-corps">
+          <label>Couleur par <select id="sel-mode"></select></label>
+          <label>Modèle
+            <select id="sel-modele">
+              <option value="compact">Vertical compact (râteau)</option>
+              <option value="vertical">Vertical</option>
+              <option value="horizontal">Horizontal</option>
+            </select>
+          </label>
+          <label>Vue non nominative <input id="chk-anon" type="checkbox"></label>
+        </div>
+      </details>
+      <button id="btn-stats" type="button">Comptages…</button>
       <button id="btn-export" type="button">Exporter…</button>
       <button id="btn-lexique" type="button" hidden>Lexique</button>
+      <button id="btn-masques" type="button" hidden>Branches masquées</button>
       <button id="btn-complet" class="primaire" type="button" hidden>Retour à l'organigramme complet</button>
     </div>
   </div>
 
   <ul id="legende" aria-label="Légende des couleurs"></ul>
-  <p id="statut" role="status" aria-live="polite">Chargement des données…</p>
+  <div class="infos">
+    <p id="statut" role="status" aria-live="polite">Chargement des données…</p>
+    <p id="synchro"></p>
+  </div>
   <div id="msg" role="alert"></div>
-  <main class="chart-container"></main>
+  <div class="zone">
+    <main class="chart-container" data-zoom="pres"></main>
+    <div class="zoomctl" role="group" aria-label="Zoom">
+      <button id="btn-zoom-moins" type="button" aria-label="Zoom arrière" title="Zoom arrière">−</button>
+      <span id="zoom-niveau" aria-live="off">100 %</span>
+      <button id="btn-zoom-plus" type="button" aria-label="Zoom avant" title="Zoom avant">+</button>
+      <button id="btn-ajuster" type="button" aria-label="Ajuster à l'écran" title="Ajuster à l'écran">⤢</button>
+      <button id="btn-plein-ecran" type="button" aria-label="Plein écran" title="Plein écran" hidden>⛶</button>
+    </div>
+  </div>
 
   <!-- Fiche agent (remplace popup.html : panneau latéral, fermable par Échap ou ✖) -->
   <dialog id="dlg-fiche" class="panneau" aria-labelledby="fiche-titre"><div id="fiche"></div></dialog>
@@ -207,8 +280,18 @@
     <div class="actions">
       <button type="button" data-action="fermer">Annuler</button>
       <button id="btn-export-csv" type="button">Modifiable (CSV pour Excel)</button>
+      <button id="btn-export-png" type="button">Image (PNG)</button>
+      <button id="btn-export-svg" type="button">Image vectorielle (SVG)</button>
       <button id="btn-export-pdf" class="primaire" type="button">Non modifiable (PDF paysage)</button>
     </div>
+  </dialog>
+
+  <dialog id="dlg-stats" aria-labelledby="stats-titre">
+    <h2 id="stats-titre">Comptages par attribut</h2>
+    <p>Structure : <b id="stats-structure"></b></p>
+    <div class="ligne"><label for="stats-attribut">Attribut</label><select id="stats-attribut"></select></div>
+    <div id="stats-corps"></div>
+    <div class="actions"><button type="button" data-action="fermer">Fermer</button></div>
   </dialog>
 
   <dialog id="dlg-lexique" aria-labelledby="lexique-titre">
@@ -223,6 +306,12 @@
     <div class="ligne"><label for="input-couleur">Couleur par défaut</label><input type="text" id="input-couleur" placeholder="lightblue, #cce5ff…"></div>
     <div class="ligne"><label for="input-logo1">Logo 1 (URL)</label><input type="url" id="input-logo1" placeholder="https://…"></div>
     <div class="ligne"><label for="input-logo2">Logo 2 (URL)</label><input type="url" id="input-logo2" placeholder="https://…"></div>
+    <div class="ligne"><label for="input-logos">Logos par collectivité (une ligne : valeur=URL)</label><textarea id="input-logos" rows="3" placeholder="Ville de Toulouse=https://…"></textarea></div>
+    <div class="ligne"><label for="input-densite">Vignette</label>
+      <select id="input-densite"><option value="detaillee">Détaillée (photo)</option><option value="compacte">Compacte</option></select></div>
+    <div class="ligne"><label for="input-police">Taille du texte</label>
+      <select id="input-police"><option value="petite">Petite</option><option value="normale">Normale</option><option value="grande">Grande</option></select></div>
+    <div class="ligne"><label for="chk-sorh">SORH sur la vignette</label><input id="chk-sorh" type="checkbox" style="flex:0"></div>
     <div class="ligne"><label for="input-lexique">Lexique (règles de gestion)</label><textarea id="input-lexique" rows="5"></textarea></div>
     <div class="actions">
       <button type="button" data-action="fermer">Annuler</button>
